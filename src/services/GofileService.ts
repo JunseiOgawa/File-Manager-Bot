@@ -13,9 +13,36 @@ interface GofileUploadResponse {
     };
 }
 
+interface GofileServersResponse {
+    status: string;
+    data: {
+        servers: {
+            name: string;
+            zone: string;
+        }[];
+    };
+}
+
 export class GofileService {
-    // Current working endpoint for anonymous uploads
-    private static UPLOAD_SERVER = 'store1';
+    // Fallback servers if API fails
+    private static FALLBACK_SERVERS = ['store1', 'store2', 'store3', 'store4', 'store5'];
+
+    /**
+     * Tries to get the best available server.
+     */
+    private static async getBestServer(): Promise<string> {
+        try {
+            const response = await axios.get<GofileServersResponse>('https://api.gofile.io/servers');
+            if (response.data.status === 'ok' && response.data.data.servers.length > 0) {
+                // Return the first one (usually the best one)
+                return response.data.data.servers[0].name;
+            }
+        } catch (error) {
+            console.warn('Failed to fetch Gofile servers dynamically, using fallback.', error);
+        }
+        // Random fallback to distribute load/avoid full servers
+        return this.FALLBACK_SERVERS[Math.floor(Math.random() * this.FALLBACK_SERVERS.length)];
+    }
 
     /**
      * Uploads a file buffer to Gofile.io.
@@ -28,8 +55,10 @@ export class GofileService {
             const form = new FormData();
             form.append('file', buffer, filename);
 
-            // Using store1 directly as getServer is deprecated/unreliable
-            const uploadUrl = `https://${this.UPLOAD_SERVER}.gofile.io/uploadFile`;
+            const server = await this.getBestServer();
+            console.log(`[Gofile] Uploading to ${server}...`);
+
+            const uploadUrl = `https://${server}.gofile.io/uploadFile`;
 
             const response = await axios.post<GofileUploadResponse>(uploadUrl, form, {
                 headers: {
@@ -42,7 +71,7 @@ export class GofileService {
             if (response.data.status === 'ok') {
                 return response.data.data.downloadPage;
             }
-            throw new Error(`Upload failed: ${JSON.stringify(response.data)}`);
+            throw new Error(`Upload failed on ${server}: ${JSON.stringify(response.data)}`);
         } catch (error) {
             console.error(`Error uploading file ${filename}:`, error);
             throw error;

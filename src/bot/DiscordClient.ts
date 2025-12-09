@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Message, Interaction, PermissionsBitField, REST, Routes, SlashCommandBuilder, TextChannel, ChannelType, CategoryChannel } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Message, Interaction, PermissionsBitField, REST, Routes, SlashCommandBuilder, TextChannel, ChannelType, CategoryChannel, Attachment } from 'discord.js';
 import { config } from '../config';
 import { CollectorManager } from '../managers/CollectorManager';
 import { SettingsManager } from '../managers/SettingsManager';
@@ -92,8 +92,47 @@ export class DiscordClient {
                 // A clean way is: interaction.reply (ephemeral?) -> No, user wants a persistent list.
                 // We'll treat the interaction reply as the message to track.
 
-                const reply = await interaction.reply({ content, fetchReply: true });
+                await interaction.reply({ content });
+                const reply = await interaction.fetchReply();
                 this.settings.setLastFolderListMessageId(guildId, reply.id);
+            }
+            else if (commandName === 'scanhistory') {
+                if (!interaction.channel) return;
+
+                const amount = interaction.options.getInteger('amount') || 50;
+                await interaction.deferReply({ ephemeral: true });
+
+                let fetchedCount = 0;
+                let processedCount = 0;
+                let lastId: string | undefined = undefined;
+
+                console.log(`[${guildId}] Scanning history: ${amount} messages...`);
+
+                while (fetchedCount < amount) {
+                    const limit = Math.min(amount - fetchedCount, 100);
+                    const options: any = { limit };
+                    if (lastId) options.before = lastId;
+
+                    const messages = await interaction.channel.messages.fetch(options);
+                    if (messages.size === 0) break;
+
+                    for (const msg of messages.values()) {
+                        if (msg.author.bot) continue;
+
+                        // Check for JAR files
+                        const jarAttachments = msg.attachments.filter((att: Attachment) => att.name?.toLowerCase().endsWith('.jar'));
+                        if (jarAttachments.size > 0) {
+                            jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, msg, att));
+                            processedCount += jarAttachments.size;
+                        }
+
+                        lastId = msg.id;
+                    }
+
+                    fetchedCount += messages.size;
+                }
+
+                await interaction.editReply({ content: `✅ Scan complete.\nScanned: ${fetchedCount} messages\nFound: ${processedCount} files (added to queue).` });
             }
         });
 
@@ -139,6 +178,15 @@ export class DiscordClient {
             new SlashCommandBuilder()
                 .setName('folderlist')
                 .setDescription('List currently pending files using self-updating message.')
+                .toJSON(),
+            new SlashCommandBuilder()
+                .setName('scanhistory')
+                .setDescription('Scan past messages for files.')
+                .addIntegerOption(option =>
+                    option.setName('amount')
+                        .setDescription('Number of messages to scan (max 500)')
+                        .setMinValue(1)
+                        .setMaxValue(500))
                 .toJSON(),
         ];
 
