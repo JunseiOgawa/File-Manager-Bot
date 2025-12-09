@@ -113,7 +113,7 @@ export class DiscordClient {
                     const options: any = { limit };
                     if (lastId) options.before = lastId;
 
-                    const messages = await interaction.channel.messages.fetch(options);
+                    const messages = await interaction.channel.messages.fetch(options) as any;
                     if (messages.size === 0) break;
 
                     for (const msg of messages.values()) {
