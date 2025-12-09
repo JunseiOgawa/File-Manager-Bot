@@ -40,32 +40,80 @@ export class DiscordClient {
 
             const { commandName } = interaction;
 
-            if (commandName === 'inputchannel') {
-                this.settings.setMonitorChannelId(guildId, interaction.channelId);
-                await interaction.reply({ content: `✅ Input (Monitor) channel set to: <#${interaction.channelId}>` });
-                console.log(`[${guildId}] Input channel set to ${interaction.channelId}`);
-            }
-            else if (commandName === 'setoutputcategory') {
-                // If run in a category or we check channel parent
-                let categoryId = interaction.channelId;
+            if (commandName === 'createzip') {
+                if (!interaction.channel || (interaction.channel as any).name !== 'inputfolder') {
+                    const guild = interaction.guild;
+                    if (!guild) {
+                        await interaction.reply({ content: '❌ エラー: サーバー情報が取得できませんでした。', ephemeral: true });
+                        return;
+                    }
 
-                // If the command is run in a text channel, try to get its parent category
-                const channel = interaction.channel;
-                let categoryName = "ID: " + categoryId;
+                    // Try to find existing inputfolder
+                    let targetChannel = guild.channels.cache.find(c => c.name === 'inputfolder' && c.type === ChannelType.GuildText) as TextChannel;
 
-                if (channel instanceof TextChannel && channel.parentId) {
-                    categoryId = channel.parentId;
-                    const parent = channel.parent;
-                    categoryName = parent?.name || categoryId;
-                } else if (channel && (channel as any).type === ChannelType.GuildCategory) {
-                    // Start in category directly? (Discord UI sometimes limits this)
-                    categoryName = (channel as unknown as CategoryChannel).name;
+                    if (!targetChannel) {
+                        try {
+                            // Fetch to be sure
+                            const channels = await guild.channels.fetch();
+                            targetChannel = channels.find(c => c !== null && c.name === 'inputfolder' && c.type === ChannelType.GuildText) as TextChannel;
+
+                            if (!targetChannel) {
+                                // Create it
+                                targetChannel = await guild.channels.create({
+                                    name: 'inputfolder',
+                                    type: ChannelType.GuildText,
+                                    topic: 'File input for ZIP creation'
+                                });
+                                await interaction.reply({ content: `❌ \`inputfolder\` が見つからなかったため自動作成しました。\nこちらでコマンドを実行してください: ${targetChannel}`, ephemeral: true });
+                                return;
+                            }
+                        } catch (error) {
+                            console.error('Failed to find or create inputfolder:', error);
+                            await interaction.reply({ content: `❌ \`inputfolder\` 以外では実行できません。また、チャンネルの自動作成に失敗しました。\n権限を確認してください。`, ephemeral: true });
+                            return;
+                        }
+                    }
+
+                    // Channel exists but we are not in it
+                    await interaction.reply({ content: `❌ このコマンドは \`inputfolder\` でのみ実行できます。\nこちらに移動してください: ${targetChannel}`, ephemeral: true });
+                    return;
                 }
 
-                this.settings.setOutputCategoryId(guildId, categoryId);
-                await interaction.reply({ content: `✅ Output Category set to: **${categoryName}**\nNew output channels will be created here.` });
-                console.log(`[${guildId}] Output Category set to ${categoryId}`);
+                await interaction.deferReply({ ephemeral: true });
+                console.log(`[${guildId}] Manual ZIP creation triggered.`);
+
+                // Scan last 200 messages
+                let fetchedCount = 0;
+                let processedCount = 0;
+                let lastId: string | undefined = undefined;
+                const MAX_SCAN = 200;
+
+                while (fetchedCount < MAX_SCAN) {
+                    const limit = Math.min(MAX_SCAN - fetchedCount, 100);
+                    const options: any = { limit };
+                    if (lastId) options.before = lastId;
+
+                    const messages = await interaction.channel.messages.fetch(options) as any;
+                    if (messages.size === 0) break;
+
+                    for (const msg of messages.values()) {
+                        if (msg.author.bot) continue;
+
+                        const jarAttachments = msg.attachments.filter((att: Attachment) => att.name?.toLowerCase().endsWith('.jar'));
+                        if (jarAttachments.size > 0) {
+                            jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, msg, att));
+                            processedCount += jarAttachments.size;
+                        }
+                        lastId = msg.id;
+                    }
+                    fetchedCount += messages.size;
+                }
+
+                // Force Process
+                await collector.forceProcess(guildId);
+                await interaction.editReply({ content: `✅ Processed ${processedCount} files (scanned ${fetchedCount}). Checking output channel...` });
             }
+
             else if (commandName === 'folderlist') {
                 // 1. Delete Old Message
                 const lastMsgId = this.settings.getLastFolderListMessageId(guildId);
@@ -86,53 +134,9 @@ export class DiscordClient {
                 }
 
                 // 3. Send New Message
-                // We use deferReply + delete + followUp or just reply.
-                // Since we want to delete THIS message later, reply is good, but if we reply to the interaction, 
-                // deleting the "interaction reply" is slightly different.
-                // A clean way is: interaction.reply (ephemeral?) -> No, user wants a persistent list.
-                // We'll treat the interaction reply as the message to track.
-
                 await interaction.reply({ content });
                 const reply = await interaction.fetchReply();
                 this.settings.setLastFolderListMessageId(guildId, reply.id);
-            }
-            else if (commandName === 'scanhistory') {
-                if (!interaction.channel) return;
-
-                const amount = interaction.options.getInteger('amount') || 50;
-                await interaction.deferReply({ ephemeral: true });
-
-                let fetchedCount = 0;
-                let processedCount = 0;
-                let lastId: string | undefined = undefined;
-
-                console.log(`[${guildId}] Scanning history: ${amount} messages...`);
-
-                while (fetchedCount < amount) {
-                    const limit = Math.min(amount - fetchedCount, 100);
-                    const options: any = { limit };
-                    if (lastId) options.before = lastId;
-
-                    const messages = await interaction.channel.messages.fetch(options) as any;
-                    if (messages.size === 0) break;
-
-                    for (const msg of messages.values()) {
-                        if (msg.author.bot) continue;
-
-                        // Check for JAR files
-                        const jarAttachments = msg.attachments.filter((att: Attachment) => att.name?.toLowerCase().endsWith('.jar'));
-                        if (jarAttachments.size > 0) {
-                            jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, msg, att));
-                            processedCount += jarAttachments.size;
-                        }
-
-                        lastId = msg.id;
-                    }
-
-                    fetchedCount += messages.size;
-                }
-
-                await interaction.editReply({ content: `✅ Scan complete.\nScanned: ${fetchedCount} messages\nFound: ${processedCount} files (added to queue).` });
             }
         });
 
@@ -141,14 +145,13 @@ export class DiscordClient {
             if (message.author.bot || !message.guildId) return;
 
             const guildId = message.guildId;
-            const monitorChannelId = this.settings.getMonitorChannelId(guildId);
 
-            if (monitorChannelId && message.channelId === monitorChannelId) {
+            if ((message.channel as any).name === 'inputfolder') {
                 // 1. Check for File Uploads (.jar)
-                const jarAttachments = message.attachments.filter(att => att.name?.toLowerCase().endsWith('.jar'));
+                const jarAttachments = message.attachments.filter((att: Attachment) => att.name?.toLowerCase().endsWith('.jar'));
 
                 if (jarAttachments.size > 0) {
-                    jarAttachments.forEach(att => collector.handleFileEvent(guildId, message, att));
+                    jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, message, att));
                 }
 
                 // 2. Check for Cancellation (Reply)
@@ -168,25 +171,12 @@ export class DiscordClient {
 
         const commands = [
             new SlashCommandBuilder()
-                .setName('inputchannel')
-                .setDescription('Set the current channel as the input (monitor) channel.')
-                .toJSON(),
-            new SlashCommandBuilder()
-                .setName('setoutputcategory')
-                .setDescription('Set the Category of current channel as the Output Category.')
+                .setName('createzip')
+                .setDescription('Scan last 200 messages in inputfolder and upload immediately.')
                 .toJSON(),
             new SlashCommandBuilder()
                 .setName('folderlist')
-                .setDescription('List currently pending files using self-updating message.')
-                .toJSON(),
-            new SlashCommandBuilder()
-                .setName('scanhistory')
-                .setDescription('Scan past messages for files.')
-                .addIntegerOption(option =>
-                    option.setName('amount')
-                        .setDescription('Number of messages to scan (max 500)')
-                        .setMinValue(1)
-                        .setMaxValue(500))
+                .setDescription('List currently pending files.')
                 .toJSON(),
         ];
 
