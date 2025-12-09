@@ -57,12 +57,42 @@ export class DiscordClient {
                             const channels = await guild.channels.fetch();
                             targetChannel = channels.find(c => c !== null && c.name === 'inputfolder' && c.type === ChannelType.GuildText) as TextChannel;
 
+                            // Ensure Category Exists
+                            let category: CategoryChannel | undefined;
+                            const categoryName = 'File Manager Output';
+
+                            // Try finding by ID from settings first
+                            const storedCatId = this.settings.getOutputCategoryId(guildId);
+                            if (storedCatId) {
+                                try {
+                                    const c = await guild.channels.fetch(storedCatId);
+                                    if (c && c.type === ChannelType.GuildCategory) category = c as CategoryChannel;
+                                } catch { }
+                            }
+
+                            if (!category) {
+                                category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === categoryName) as CategoryChannel;
+                            }
+
+                            if (!category) {
+                                try {
+                                    category = await guild.channels.create({
+                                        name: categoryName,
+                                        type: ChannelType.GuildCategory
+                                    });
+                                    this.settings.setOutputCategoryId(guildId, category.id);
+                                } catch (error) {
+                                    console.error('Failed to create category:', error);
+                                }
+                            }
+
                             if (!targetChannel) {
                                 // Create it
                                 targetChannel = await guild.channels.create({
                                     name: 'inputfolder',
                                     type: ChannelType.GuildText,
-                                    topic: 'File input for ZIP creation'
+                                    topic: 'File input for ZIP creation',
+                                    parent: category?.id
                                 });
                                 await interaction.reply({ content: `❌ \`inputfolder\` が見つからなかったため自動作成しました。\nこちらでコマンドを実行してください: ${targetChannel}`, ephemeral: true });
                                 return;
@@ -104,9 +134,20 @@ export class DiscordClient {
                             jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, msg, att));
                             processedCount += jarAttachments.size;
                         }
-                        lastId = msg.id;
                     }
+
+                    // Update lastId to the last message in the fetched batch to ensure pagination advances
+                    const lastMsg = messages.last();
+                    if (lastMsg) lastId = lastMsg.id;
+
                     fetchedCount += messages.size;
+                }
+
+                // Check if any files were found
+                const pendingFiles = collector.getPendingFiles(guildId);
+                if (pendingFiles.length === 0) {
+                    await interaction.editReply({ content: '❌ チャット内に該当するファイルが見つかりませんでした。' });
+                    return;
                 }
 
                 // Force Process
