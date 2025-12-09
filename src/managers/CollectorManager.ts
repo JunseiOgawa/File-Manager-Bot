@@ -166,61 +166,76 @@ export class CollectorManager {
         }
     }
 
+    public async forceProcess(guildId: string) {
+        if (this.timers.has(guildId)) {
+            clearTimeout(this.timers.get(guildId));
+            this.timers.delete(guildId);
+        }
+        await this.processBatch(guildId);
+    }
+
     private async sendNotificationInNewChannel(guildId: string, url: string, fileList: string[], date: Date) {
         const guild = this.client.guilds.cache.get(guildId);
         if (!guild) return;
 
-        // 1. Get or Create Category
-        let categoryId = this.settings.getOutputCategoryId(guildId);
-        let category: CategoryChannel | null = null;
+        // 1. Get or Create Category 'File Manager Output'
+        let category: CategoryChannel | undefined;
 
-        if (categoryId) {
+        // Try finding by ID from settings first (legacy compat)
+        const storedCatId = this.settings.getOutputCategoryId(guildId);
+        if (storedCatId) {
             try {
-                const chan = await guild.channels.fetch(categoryId);
-                if (chan && chan.type === ChannelType.GuildCategory) {
-                    category = chan as CategoryChannel;
-                }
-            } catch (e) { console.warn('Category fetch failed, will try create'); }
+                const c = await guild.channels.fetch(storedCatId);
+                if (c && c.type === ChannelType.GuildCategory) category = c as CategoryChannel;
+            } catch { }
         }
 
+        // If not found, find by Name
+        if (!category) {
+            const existing = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === 'File Manager Output');
+            if (existing) category = existing as CategoryChannel;
+        }
+
+        // Create if missing
         if (!category) {
             try {
                 category = await guild.channels.create({
                     name: 'File Manager Output',
                     type: ChannelType.GuildCategory
                 });
-                this.settings.setOutputCategoryId(guildId, category.id);
                 console.log(`[Collector][${guildId}] Created new category: ${category.name}`);
-            } catch (e) {
+            } catch (e: any) {
                 console.error(`[Collector][${guildId}] Failed to create category:`, e);
-                return; // Cannot proceed without permissions?
+                if (e.code === 50013) {
+                    const inputChannel = guild.channels.cache.find(c => c.name === 'inputfolder' && c.isTextBased());
+                    if (inputChannel) await (inputChannel as TextChannel).send("権限足りないンゴ");
+                }
+                return;
             }
         }
+
+        // Update settings
+        this.settings.setOutputCategoryId(guildId, category.id);
 
         // 2. Delete Old Channel
         const lastChannelId = this.settings.getLastOutputChannelId(guildId);
         if (lastChannelId) {
             try {
                 const oldChannel = await guild.channels.fetch(lastChannelId);
-                if (oldChannel) {
-                    await oldChannel.delete();
-                    console.log(`[Collector][${guildId}] Deleted old channel: ${oldChannel.name}`);
-                }
+                if (oldChannel) await oldChannel.delete();
             } catch (e) {
-                console.warn(`[Collector][${guildId}] Failed to delete old channel (maybe already gone):`, e);
+                console.warn(`[Collector][${guildId}] Failed to delete old channel:`, e);
             }
         }
 
         // 3. Create New Channel
-        // Format: アウトプットチャンネル-YYYYMMDDHHmmss
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
         const hour = String(date.getHours()).padStart(2, '0');
         const min = String(date.getMinutes()).padStart(2, '0');
         const sec = String(date.getSeconds()).padStart(2, '0');
-
-        const channelName = `アウトプットチャンネル-${year}${month}${day}${hour}${min}${sec}`;
+        const channelName = `outputfolder-${year}${month}${day}${hour}${min}${sec}`;
 
         try {
             const newChannel = await guild.channels.create({
@@ -230,29 +245,15 @@ export class CollectorManager {
             });
             this.settings.setLastOutputChannelId(guildId, newChannel.id);
 
-            // 4. Send Message
             const message = `以下のファイルを更新しました\n\n${fileList.join('\n')}\n\n**まとめてダウンロード**: ${url}`;
             await newChannel.send(message);
-            console.log(`[Collector][${guildId}] Created new channel and sent notification: ${newChannel.name}`);
+            console.log(`[Collector][${guildId}] Created new channel: ${newChannel.name}`);
 
         } catch (e: any) {
             console.error(`[Collector][${guildId}] Failed to create output channel:`, e);
             if (e.code === 50013) {
-                await this.sendErrorNotification(guildId, "権限足りないンゴ");
-            }
-        }
-    }
-
-    private async sendErrorNotification(guildId: string, text: string) {
-        const monitorChannelId = this.settings.getMonitorChannelId(guildId);
-        if (monitorChannelId) {
-            try {
-                const channel = await this.client.channels.fetch(monitorChannelId);
-                if (channel && channel.isTextBased()) {
-                    await (channel as TextChannel).send(text);
-                }
-            } catch (e) {
-                console.error(`[Collector][${guildId}] Failed to send error notification to monitor channel:`, e);
+                const inputChannel = guild.channels.cache.find(c => c.name === 'inputfolder' && c.isTextBased());
+                if (inputChannel) await (inputChannel as TextChannel).send("権限足りないンゴ");
             }
         }
     }
