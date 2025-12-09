@@ -3,7 +3,9 @@ import * as path from 'path';
 
 interface IGuildSettings {
     monitorChannelId?: string;
-    notifyChannelId?: string;
+    outputCategoryId?: string;
+    lastOutputChannelId?: string;
+    lastFolderListMessageId?: string;
 }
 
 interface ISettings {
@@ -34,7 +36,7 @@ export class SettingsManager {
     private saveSettings() {
         try {
             fs.writeFileSync(this.settingsFile, JSON.stringify(this.settings, null, 2));
-            console.log('Settings saved.');
+            // console.log('Settings saved.'); // Reduce noise
         } catch (error) {
             console.error('Failed to save settings:', error);
         }
@@ -47,6 +49,7 @@ export class SettingsManager {
         return this.settings[guildId];
     }
 
+    // Monitor Channel
     public getMonitorChannelId(guildId: string): string | undefined {
         return this.settings[guildId]?.monitorChannelId;
     }
@@ -57,13 +60,36 @@ export class SettingsManager {
         this.saveSettings();
     }
 
-    public getNotifyChannelId(guildId: string): string | undefined {
-        return this.settings[guildId]?.notifyChannelId;
+    // Output Category
+    public getOutputCategoryId(guildId: string): string | undefined {
+        return this.settings[guildId]?.outputCategoryId;
     }
 
-    public setNotifyChannelId(guildId: string, channelId: string) {
+    public setOutputCategoryId(guildId: string, categoryId: string) {
         const guildSettings = this.getGuildSettings(guildId);
-        guildSettings.notifyChannelId = channelId;
+        guildSettings.outputCategoryId = categoryId;
+        this.saveSettings();
+    }
+
+    // Last Output Channel (for rotation)
+    public getLastOutputChannelId(guildId: string): string | undefined {
+        return this.settings[guildId]?.lastOutputChannelId;
+    }
+
+    public setLastOutputChannelId(guildId: string, channelId: string) {
+        const guildSettings = this.getGuildSettings(guildId);
+        guildSettings.lastOutputChannelId = channelId;
+        this.saveSettings();
+    }
+
+    // Last Folder List Message (for cleanup)
+    public getLastFolderListMessageId(guildId: string): string | undefined {
+        return this.settings[guildId]?.lastFolderListMessageId;
+    }
+
+    public setLastFolderListMessageId(guildId: string, messageId: string) {
+        const guildSettings = this.getGuildSettings(guildId);
+        guildSettings.lastFolderListMessageId = messageId;
         this.saveSettings();
     }
 }
