@@ -1,38 +1,34 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { config } from '../config';
+
+interface IGuildSettings {
+    monitorChannelId?: string;
+    notifyChannelId?: string;
+}
 
 interface ISettings {
-    monitorChannelId: string;
-    notifyChannelId: string;
+    [guildId: string]: IGuildSettings;
 }
 
 export class SettingsManager {
     private settingsFile = path.resolve(process.cwd(), 'settings.json');
-    private settings: ISettings;
+    private settings: ISettings = {};
 
     constructor() {
-        this.settings = this.loadSettings();
+        this.loadSettings();
     }
 
-    private loadSettings(): ISettings {
-        let savedSettings: Partial<ISettings> = {};
-
+    private loadSettings() {
         if (fs.existsSync(this.settingsFile)) {
             try {
                 const data = fs.readFileSync(this.settingsFile, 'utf-8');
-                savedSettings = JSON.parse(data);
+                this.settings = JSON.parse(data);
                 console.log('Loaded settings from file.');
             } catch (error) {
-                console.error('Failed to load settings file, using defaults.', error);
+                console.error('Failed to load settings file, starting fresh.', error);
+                this.settings = {};
             }
         }
-
-        // Merge saved settings with defaults from env
-        return {
-            monitorChannelId: savedSettings.monitorChannelId || config.MONITOR_CHANNEL_ID || '',
-            notifyChannelId: savedSettings.notifyChannelId || config.NOTIFY_CHANNEL_ID || '',
-        };
     }
 
     private saveSettings() {
@@ -44,21 +40,30 @@ export class SettingsManager {
         }
     }
 
-    public getMonitorChannelId(): string {
-        return this.settings.monitorChannelId;
+    private getGuildSettings(guildId: string): IGuildSettings {
+        if (!this.settings[guildId]) {
+            this.settings[guildId] = {};
+        }
+        return this.settings[guildId];
     }
 
-    public setMonitorChannelId(id: string) {
-        this.settings.monitorChannelId = id;
+    public getMonitorChannelId(guildId: string): string | undefined {
+        return this.settings[guildId]?.monitorChannelId;
+    }
+
+    public setMonitorChannelId(guildId: string, channelId: string) {
+        const guildSettings = this.getGuildSettings(guildId);
+        guildSettings.monitorChannelId = channelId;
         this.saveSettings();
     }
 
-    public getNotifyChannelId(): string {
-        return this.settings.notifyChannelId;
+    public getNotifyChannelId(guildId: string): string | undefined {
+        return this.settings[guildId]?.notifyChannelId;
     }
 
-    public setNotifyChannelId(id: string) {
-        this.settings.notifyChannelId = id;
+    public setNotifyChannelId(guildId: string, channelId: string) {
+        const guildSettings = this.getGuildSettings(guildId);
+        guildSettings.notifyChannelId = channelId;
         this.saveSettings();
     }
 }

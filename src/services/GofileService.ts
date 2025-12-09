@@ -1,13 +1,6 @@
 import axios from 'axios';
 import FormData from 'form-data';
 
-interface GofileServerResponse {
-    status: string;
-    data: {
-        server: string;
-    };
-}
-
 interface GofileUploadResponse {
     status: string;
     data: {
@@ -21,23 +14,8 @@ interface GofileUploadResponse {
 }
 
 export class GofileService {
-    private static BASE_URL = 'https://api.gofile.io';
-
-    /**
-     * Retrieves the best available server for upload.
-     */
-    public static async getServer(): Promise<string> {
-        try {
-            const response = await axios.get<GofileServerResponse>(`${this.BASE_URL}/getServer`);
-            if (response.data.status === 'ok') {
-                return response.data.data.server;
-            }
-            throw new Error('Failed to get Gofile server: Status not ok');
-        } catch (error) {
-            console.error('Error fetching Gofile server:', error);
-            throw error;
-        }
-    }
+    // Current working endpoint for anonymous uploads
+    private static UPLOAD_SERVER = 'store1';
 
     /**
      * Uploads a file buffer to Gofile.io.
@@ -47,13 +25,12 @@ export class GofileService {
      */
     public static async uploadFile(buffer: Buffer, filename: string): Promise<string> {
         try {
-            const server = await this.getServer();
             const form = new FormData();
             form.append('file', buffer, filename);
 
-            const uploadUrl = `https://${server}.gofile.io/uploadFile`;
+            // Using store1 directly as getServer is deprecated/unreliable
+            const uploadUrl = `https://${this.UPLOAD_SERVER}.gofile.io/uploadFile`;
 
-            // Note: maxContentLength and maxBodyLength are important for large files
             const response = await axios.post<GofileUploadResponse>(uploadUrl, form, {
                 headers: {
                     ...form.getHeaders()
