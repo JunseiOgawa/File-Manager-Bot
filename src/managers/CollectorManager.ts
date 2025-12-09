@@ -192,6 +192,13 @@ export class CollectorManager {
 
         // If not found, find by Name
         if (!category) {
+            // Force fetch to ensure cache is up to date
+            try {
+                await guild.channels.fetch();
+            } catch (error) {
+                console.error(`[Collector][${guildId}] Failed to fetch channels:`, error);
+            }
+
             const existing = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === 'File Manager Output');
             if (existing) category = existing as CategoryChannel;
         }
