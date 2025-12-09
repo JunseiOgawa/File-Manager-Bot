@@ -110,8 +110,9 @@ export class DiscordClient {
                 }
 
                 // Force Process
+                await interaction.editReply({ content: '現在アップロード作業中です...' });
                 await collector.forceProcess(guildId);
-                await interaction.editReply({ content: `✅ Processed ${processedCount} files (scanned ${fetchedCount}). Checking output channel...` });
+                await interaction.editReply({ content: `✅ アップロード完了。出力チャンネルを確認してください。` });
             }
 
             else if (commandName === 'folderlist') {

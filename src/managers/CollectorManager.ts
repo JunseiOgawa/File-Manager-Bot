@@ -53,7 +53,7 @@ export class CollectorManager {
         });
 
         console.log(`[Collector][${guildId}] File added: ${filename} (Replacement: ${isReplacement})`);
-        this.resetTimer(guildId);
+        // this.resetTimer(guildId); // Disabled for manual only workflow
     }
 
     /**
@@ -76,7 +76,7 @@ export class CollectorManager {
             guildFiles.delete(foundFilename);
             console.log(`[Collector][${guildId}] File cancelled: ${foundFilename}`);
             // Reset timer for this guild
-            this.resetTimer(guildId);
+            // this.resetTimer(guildId);
         }
     }
 
