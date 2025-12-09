@@ -235,8 +235,25 @@ export class CollectorManager {
             await newChannel.send(message);
             console.log(`[Collector][${guildId}] Created new channel and sent notification: ${newChannel.name}`);
 
-        } catch (e) {
+        } catch (e: any) {
             console.error(`[Collector][${guildId}] Failed to create output channel:`, e);
+            if (e.code === 50013) {
+                await this.sendErrorNotification(guildId, "権限足りないンゴ");
+            }
+        }
+    }
+
+    private async sendErrorNotification(guildId: string, text: string) {
+        const monitorChannelId = this.settings.getMonitorChannelId(guildId);
+        if (monitorChannelId) {
+            try {
+                const channel = await this.client.channels.fetch(monitorChannelId);
+                if (channel && channel.isTextBased()) {
+                    await (channel as TextChannel).send(text);
+                }
+            } catch (e) {
+                console.error(`[Collector][${guildId}] Failed to send error notification to monitor channel:`, e);
+            }
         }
     }
 }
