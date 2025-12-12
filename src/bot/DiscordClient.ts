@@ -3,6 +3,28 @@ import { config } from '../config';
 import { CollectorManager } from '../managers/CollectorManager';
 import { SettingsManager } from '../managers/SettingsManager';
 
+/**
+ * Extracts the original filename from message content by matching against the sanitized attachment name.
+ * Discord strips special characters like '!' from filenames, so we try to find the original in the message text.
+ */
+function getOriginalFilename(messageContent: string, sanitizedName: string): string {
+    // Pattern to find filenames in message content (handles !filename.jar, filename.jar, etc.)
+    const filenamePattern = /[!@#$%^&*]?[\w\-\.]+\.jar/gi;
+    const potentialFilenames = messageContent.match(filenamePattern) || [];
+
+    for (const potentialName of potentialFilenames) {
+        // Remove special characters to compare with sanitized name
+        const normalized = potentialName.replace(/^[!@#$%^&*]+/, '');
+        if (normalized.toLowerCase() === sanitizedName.toLowerCase()) {
+            console.log(`[Filename] Restored: "${sanitizedName}" -> "${potentialName}"`);
+            return potentialName;
+        }
+    }
+
+    // If no match found, return the sanitized name
+    return sanitizedName;
+}
+
 export class DiscordClient {
     public client: Client;
     private settings: SettingsManager;
@@ -129,9 +151,26 @@ export class DiscordClient {
                     for (const msg of messages.values()) {
                         if (msg.author.bot) continue;
 
-                        const jarAttachments = msg.attachments.filter((att: Attachment) => att.name?.toLowerCase().endsWith('.jar'));
+                        // Debug: Log all attachments
+                        if (msg.attachments.size > 0) {
+                            console.log(`[Debug] Message ${msg.id} has ${msg.attachments.size} attachment(s):`);
+                            msg.attachments.forEach((att: Attachment) => {
+                                console.log(`  - Name: "${att.name}" | URL: ${att.url.substring(0, 50)}...`);
+                            });
+                        }
+
+                        const jarAttachments = msg.attachments.filter((att: Attachment) => {
+                            const name = att.name || '';
+                            const isJar = name.toLowerCase().endsWith('.jar');
+                            console.log(`[Debug] Checking: "${name}" -> isJar: ${isJar}`);
+                            return isJar;
+                        });
                         if (jarAttachments.size > 0) {
-                            jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, msg, att));
+                            console.log(`[Debug] Found ${jarAttachments.size} .jar file(s) in message ${msg.id}`);
+                            jarAttachments.forEach((att: Attachment) => {
+                                const originalName = getOriginalFilename(msg.content, att.name);
+                                collector.handleFileEvent(guildId, msg, att, originalName);
+                            });
                             processedCount += jarAttachments.size;
                         }
                     }
@@ -189,11 +228,28 @@ export class DiscordClient {
             const guildId = message.guildId;
 
             if ((message.channel as any).name === 'inputfolder') {
+                // Debug: Log incoming message attachments
+                if (message.attachments.size > 0) {
+                    console.log(`[Debug][messageCreate] New message with ${message.attachments.size} attachment(s):`);
+                    message.attachments.forEach((att: Attachment) => {
+                        console.log(`  - Name: "${att.name}" | URL: ${att.url.substring(0, 50)}...`);
+                    });
+                }
+
                 // 1. Check for File Uploads (.jar)
-                const jarAttachments = message.attachments.filter((att: Attachment) => att.name?.toLowerCase().endsWith('.jar'));
+                const jarAttachments = message.attachments.filter((att: Attachment) => {
+                    const name = att.name || '';
+                    const isJar = name.toLowerCase().endsWith('.jar');
+                    console.log(`[Debug][messageCreate] Checking: "${name}" -> isJar: ${isJar}`);
+                    return isJar;
+                });
 
                 if (jarAttachments.size > 0) {
-                    jarAttachments.forEach((att: Attachment) => collector.handleFileEvent(guildId, message, att));
+                    console.log(`[Debug][messageCreate] Adding ${jarAttachments.size} .jar file(s) to collector`);
+                    jarAttachments.forEach((att: Attachment) => {
+                        const originalName = getOriginalFilename(message.content, att.name);
+                        collector.handleFileEvent(guildId, message, att, originalName);
+                    });
                 }
 
                 // 2. Check for Cancellation (Reply)

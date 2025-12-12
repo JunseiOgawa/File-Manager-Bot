@@ -4,6 +4,7 @@ dotenv.config();
 
 export const config = {
     DISCORD_TOKEN: process.env.DISCORD_TOKEN || '',
+    PORT: parseInt(process.env.PORT || '8000', 10),
     UPLOAD: {
         BATCH_WAIT_MS: 30 * 1000 // 30 seconds
     }

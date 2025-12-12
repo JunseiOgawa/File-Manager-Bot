@@ -31,14 +31,16 @@ export class CollectorManager {
 
     /**
      * Called when a valid file is posted in the monitored channel.
+     * @param originalFilename Optional - the original filename from message content (with special chars like !)
      */
-    public handleFileEvent(guildId: string, message: Message, attachment: Attachment) {
+    public handleFileEvent(guildId: string, message: Message, attachment: Attachment, originalFilename?: string) {
         if (!this.pendingFiles.has(guildId)) {
             this.pendingFiles.set(guildId, new Map());
         }
 
         const guildFiles = this.pendingFiles.get(guildId)!;
-        const filename = attachment.name;
+        // Use originalFilename if provided, otherwise fall back to attachment.name
+        const filename = originalFilename || attachment.name;
 
         // Check for duplicate
         const isReplacement = guildFiles.has(filename);

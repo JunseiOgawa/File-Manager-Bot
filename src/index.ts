@@ -3,6 +3,10 @@ import { CollectorManager } from './managers/CollectorManager';
 import { SettingsManager } from './managers/SettingsManager';
 import { config } from './config';
 
+import { serve } from "@hono/node-server";
+import healthCheckServer from "./server";
+import { startHealthCheckCron } from "./cron";
+
 async function main() {
     console.log('Starting Discord File Collector Bot...');
 
@@ -19,6 +23,13 @@ async function main() {
     // Start
     await discordClient.login(config.DISCORD_TOKEN);
 }
+
+// Koyeb用のヘルスチェックサーバーを起動
+serve({
+    fetch: healthCheckServer.fetch,
+    port: config.PORT,
+});
+startHealthCheckCron();
 
 main().catch(error => {
     console.error('Fatal error:', error);
