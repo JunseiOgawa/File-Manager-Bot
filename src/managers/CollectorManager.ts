@@ -30,8 +30,8 @@ export class CollectorManager {
     }
 
     /**
-     * Called when a valid file is posted in the monitored channel.
-     * @param originalFilename Optional - the original filename from message content (with special chars like !)
+     * 監視対象のチャンネルに有効なファイルが投稿されたときに呼び出されます。
+     * @param originalFilename オプション - メッセージ本文から抽出された元のファイル名 (!などの特殊文字を含む)
      */
     public handleFileEvent(guildId: string, message: Message, attachment: Attachment, originalFilename?: string) {
         if (!this.pendingFiles.has(guildId)) {
@@ -39,10 +39,10 @@ export class CollectorManager {
         }
 
         const guildFiles = this.pendingFiles.get(guildId)!;
-        // Use originalFilename if provided, otherwise fall back to attachment.name
+        // originalFilename があればそれを使用し、なければ attachment.name を使用
         const filename = originalFilename || attachment.name;
 
-        // Check for duplicate
+        // 重複チェック
         const isReplacement = guildFiles.has(filename);
 
         guildFiles.set(filename, {
@@ -54,12 +54,12 @@ export class CollectorManager {
             isReplacement
         });
 
-        console.log(`[Collector][${guildId}] File added: ${filename} (Replacement: ${isReplacement})`);
-        // this.resetTimer(guildId); // Disabled for manual only workflow
+        console.log(`[コレクター][${guildId}] ファイル追加: ${filename} (置換: ${isReplacement})`);
+        // this.resetTimer(guildId); // 手動ワークフローのため無効化
     }
 
     /**
-     * Called when a cancellation reply is detected.
+     * キャンセルリプライが検知されたときに呼び出されます。
      */
     public handleCancelEvent(guildId: string, targetMessageId: string) {
         const guildFiles = this.pendingFiles.get(guildId);
@@ -76,14 +76,14 @@ export class CollectorManager {
 
         if (foundFilename) {
             guildFiles.delete(foundFilename);
-            console.log(`[Collector][${guildId}] File cancelled: ${foundFilename}`);
+            console.log(`[コレクター][${guildId}] ファイルキャンセル: ${foundFilename}`);
             // Reset timer for this guild
             // this.resetTimer(guildId);
         }
     }
 
     /**
-     * Returns the list of currently pending files for a guild.
+     * 指定されたギルドの現在保留中のファイルリストを返します。
      */
     public getPendingFiles(guildId: string): PendantFile[] {
         const guildFiles = this.pendingFiles.get(guildId);
@@ -97,7 +97,7 @@ export class CollectorManager {
             clearTimeout(existingTimer);
         }
 
-        console.log(`[Collector][${guildId}] Timer reset. Waiting ${config.UPLOAD.BATCH_WAIT_MS}ms...`);
+        console.log(`[コレクター][${guildId}] タイマーリセット。${config.UPLOAD.BATCH_WAIT_MS}ms 待機中...`);
         const newTimer = setTimeout(() => {
             this.processBatch(guildId);
         }, config.UPLOAD.BATCH_WAIT_MS);
@@ -109,14 +109,14 @@ export class CollectorManager {
         const guildFiles = this.pendingFiles.get(guildId);
         if (!guildFiles || guildFiles.size === 0) return;
 
-        console.log(`[Collector][${guildId}] Processing batch: ${guildFiles.size} files.`);
+        console.log(`[コレクター][${guildId}] バッチ処理開始: ${guildFiles.size} 個のファイル。`);
 
         const filesToProcess = Array.from(guildFiles.values());
         guildFiles.clear();
         this.timers.delete(guildId);
 
         try {
-            // 1. Download all files
+            // 1. 全ファイルのダウンロード
             const downloads = await Promise.all(filesToProcess.map(async (file) => {
                 try {
                     const response = await axios.get(file.url, { responseType: 'arraybuffer' });
@@ -126,7 +126,7 @@ export class CollectorManager {
                         isReplacement: file.isReplacement
                     };
                 } catch (e) {
-                    console.error(`Failed to download ${file.filename}`, e);
+                    console.error(`${file.filename} のダウンロードに失敗しました`, e);
                     return null;
                 }
             }));
@@ -135,7 +135,7 @@ export class CollectorManager {
 
             if (validDownloads.length === 0) return;
 
-            // 2. Archive to ZIP
+            // 2. ZIPアーカイブの作成
             const archive = archiver('zip', { zlib: { level: 9 } });
             const buffers: Buffer[] = [];
 
@@ -155,16 +155,16 @@ export class CollectorManager {
             const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
             const zipFilename = `files_${timestamp}.zip`;
 
-            // 3. Upload ZIP
+            // 3. ZIPのアップロード
             const gofileLink = await GofileService.uploadFile(zipBuffer, zipFilename);
-            console.log(`[Collector][${guildId}] Uploaded ZIP: ${zipFilename}`);
+            console.log(`[コレクター][${guildId}] ZIPアップロード完了: ${zipFilename}`);
 
-            // 4. Create Channel & Notify
+            // 4. チャンネル作成と通知
             const fileList = validDownloads.map(f => `・${f.filename}${f.isReplacement ? ' (更新)' : ''}`);
             await this.sendNotificationInNewChannel(guildId, gofileLink, fileList, now);
 
         } catch (error) {
-            console.error(`[Collector][${guildId}] Critical error during batch processing:`, error);
+            console.error(`[コレクター][${guildId}] バッチ処理中に重大なエラーが発生しました:`, error);
         }
     }
 
@@ -180,10 +180,10 @@ export class CollectorManager {
         const guild = this.client.guilds.cache.get(guildId);
         if (!guild) return;
 
-        // 1. Get or Create Category 'File Manager Output'
+        // 1. カテゴリ 'File Manager Output' を取得または作成
         let category: CategoryChannel | undefined;
 
-        // Try finding by ID from settings first (legacy compat)
+        // 設定からIDで探す (レガシー互換)
         const storedCatId = this.settings.getOutputCategoryId(guildId);
         if (storedCatId) {
             try {
@@ -192,29 +192,29 @@ export class CollectorManager {
             } catch { }
         }
 
-        // If not found, find by Name
+        // 見つからなければ名前で探す
         if (!category) {
-            // Force fetch to ensure cache is up to date
+            // キャッシュを確実にするために強制フェッチ
             try {
                 await guild.channels.fetch();
             } catch (error) {
-                console.error(`[Collector][${guildId}] Failed to fetch channels:`, error);
+                console.error(`[コレクター][${guildId}] チャンネルのフェッチに失敗しました:`, error);
             }
 
             const existing = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === 'File Manager Output');
             if (existing) category = existing as CategoryChannel;
         }
 
-        // Create if missing
+        // なければ作成
         if (!category) {
             try {
                 category = await guild.channels.create({
                     name: 'File Manager Output',
                     type: ChannelType.GuildCategory
                 });
-                console.log(`[Collector][${guildId}] Created new category: ${category.name}`);
+                console.log(`[コレクター][${guildId}] 新しいカテゴリを作成しました: ${category.name}`);
             } catch (e: any) {
-                console.error(`[Collector][${guildId}] Failed to create category:`, e);
+                console.error(`[コレクター][${guildId}] カテゴリの作成に失敗しました:`, e);
                 if (e.code === 50013) {
                     const inputChannel = guild.channels.cache.find(c => c.name === 'inputfolder' && c.isTextBased());
                     if (inputChannel) await (inputChannel as TextChannel).send("権限足りないンゴ");
@@ -223,21 +223,21 @@ export class CollectorManager {
             }
         }
 
-        // Update settings
+        // 設定を更新
         this.settings.setOutputCategoryId(guildId, category.id);
 
-        // 2. Delete Old Channel
+        // 2. 古いチャンネルを削除
         const lastChannelId = this.settings.getLastOutputChannelId(guildId);
         if (lastChannelId) {
             try {
                 const oldChannel = await guild.channels.fetch(lastChannelId);
                 if (oldChannel) await oldChannel.delete();
             } catch (e) {
-                console.warn(`[Collector][${guildId}] Failed to delete old channel:`, e);
+                console.warn(`[コレクター][${guildId}] 古いチャンネルの削除に失敗しました:`, e);
             }
         }
 
-        // 3. Create New Channel
+        // 3. 新しいチャンネルを作成
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
@@ -256,10 +256,10 @@ export class CollectorManager {
 
             const message = `以下のファイルを更新しました\n\n${fileList.join('\n')}\n\n**まとめてダウンロード**: ${url}`;
             await newChannel.send(message);
-            console.log(`[Collector][${guildId}] Created new channel: ${newChannel.name}`);
+            console.log(`[コレクター][${guildId}] 新しいチャンネルを作成しました: ${newChannel.name}`);
 
         } catch (e: any) {
-            console.error(`[Collector][${guildId}] Failed to create output channel:`, e);
+            console.error(`[コレクター][${guildId}] 出力チャンネルの作成に失敗しました:`, e);
             if (e.code === 50013) {
                 const inputChannel = guild.channels.cache.find(c => c.name === 'inputfolder' && c.isTextBased());
                 if (inputChannel) await (inputChannel as TextChannel).send("権限足りないンゴ");
